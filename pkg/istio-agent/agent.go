@@ -83,7 +83,7 @@ type Agent struct {
 	secOpts *security.Options
 
 	sdsServer   *sds.Server
-	secretCache *cache.SecretManagerClient
+	secretCache security.SecretProvider
 
 	// Used when proxying envoy xds via istio-agent is enabled.
 	xdsProxy *XdsProxy
@@ -282,7 +282,12 @@ func (a *Agent) FindRootCAForCA() string {
 }
 
 // newSecretManager creates the SecretManager for workload secrets
-func (a *Agent) newSecretManager() (*cache.SecretManagerClient, error) {
+func (a *Agent) newSecretManager() (security.SecretProvider, error) {
+	if a.secOpts.PilotCertProvider == "SPIRE" {
+		log.Info("Using SPIRE")
+		return cache.NewSpireSecretManager(a.secOpts)
+	}
+
 	// If proxy is using file mounted certs, we do not have to connect to CA.
 	if a.secOpts.FileMountedCerts {
 		log.Info("Workload is using file mounted certificates. Skipping connecting to CA")
