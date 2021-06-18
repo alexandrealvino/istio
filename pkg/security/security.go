@@ -227,6 +227,13 @@ type SecretManager interface {
 	GenerateSecret(resourceName string) (*SecretItem, error)
 }
 
+type SecretProvider interface {
+	SecretManager
+	Close()
+	SetUpdateCallback(func(string))
+	UpdateConfigTrustBundle([]byte) error
+}
+
 // TokenExchanger provides common interfaces so that authentication providers could choose to implement their specific logic.
 type TokenExchanger interface {
 	// ExchangeToken provides a common interface to exchange an existing token for a new one.
