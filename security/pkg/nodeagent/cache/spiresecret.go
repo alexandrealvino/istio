@@ -1,6 +1,10 @@
 package cache
 
 import (
+	"github.com/spiffe/go-spiffe/v2/spiffetls"
+	"github.com/spiffe/go-spiffe/v2/spiffetls/tlsconfig"
+	"golang.org/x/net/context"
+	"google.golang.org/grpc/metadata"
 	"sync"
 	"time"
 
@@ -18,6 +22,11 @@ func NewSpireSecretManager(options *security.Options) (*SpireSecretManager, erro
 }
 
 func (s *SpireSecretManager) GenerateSecret(resourceName string) (*security.SecretItem, error) {
+
+	var ctx = metadata.AppendToOutgoingContext(context.Background(), "ClusterID", "Kubernetes")
+	listener, err := spiffetls.Listen(ctx, "tcp", "127.0.0.1:8443", tlsconfig.AuthorizeAny())
+	println(listener,err,ctx)
+
 	expiry, _ := time.Parse(time.RFC3339, "2022-04-16T19:15:00+00:00")
 	created, _ := time.Parse(time.RFC3339, "2021-05-13T14:57:25+00:00")
 	return &security.SecretItem{

@@ -283,6 +283,7 @@ func (a *Agent) FindRootCAForCA() string {
 
 // newSecretManager creates the SecretManager for workload secrets
 func (a *Agent) newSecretManager() (security.SecretProvider, error) {
+	println("==========ALEXANDRE===========")
 	if a.secOpts.PilotCertProvider == "SPIRE" {
 		log.Info("Using SPIRE")
 		return cache.NewSpireSecretManager(a.secOpts)
