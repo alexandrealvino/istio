@@ -49,6 +49,7 @@ type spireSecretCache struct {
 	workload *security.SecretItem
 	certRoot []byte
 }
+
 const agentSocketPath = "unix:///tmp/agent.sock"
 
 func NewSpireSecretManager(options *security.Options) (*SpireSecretManager, error) {
