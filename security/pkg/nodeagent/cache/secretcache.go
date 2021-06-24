@@ -90,7 +90,7 @@ type SecretManagerClient struct {
 
 	// Cache of workload certificate and root certificate. File based certs are never cached, as
 	// lookup is cheap.
-	cache secretCache
+	cache SecretCache
 
 	// generateMutex ensures we do not send concurrent requests to generate a certificate
 	generateMutex sync.Mutex
@@ -118,27 +118,27 @@ type SecretManagerClient struct {
 	stop  chan struct{}
 }
 
-type secretCache struct {
+type SecretCache struct {
 	mu       sync.RWMutex
 	workload *security.SecretItem
 	certRoot []byte
 }
 
 // GetRoot returns cached root cert and cert expiration time. This method is thread safe.
-func (s *secretCache) GetRoot() (rootCert []byte) {
+func (s *SecretCache) GetRoot() (rootCert []byte) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.certRoot
 }
 
 // SetRoot sets root cert into cache. This method is thread safe.
-func (s *secretCache) SetRoot(rootCert []byte) {
+func (s *SecretCache) SetRoot(rootCert []byte) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.certRoot = rootCert
 }
 
-func (s *secretCache) GetWorkload() *security.SecretItem {
+func (s *SecretCache) GetWorkload() *security.SecretItem {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if s.workload == nil {
@@ -147,7 +147,7 @@ func (s *secretCache) GetWorkload() *security.SecretItem {
 	return s.workload
 }
 
-func (s *secretCache) SetWorkload(value *security.SecretItem) {
+func (s *SecretCache) SetWorkload(value *security.SecretItem) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.workload = value

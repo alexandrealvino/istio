@@ -39,16 +39,16 @@ type SpireSecretManager struct {
 	queue queue.Delayed
 	stop  chan struct{}
 
-	cache spireSecretCache
+	cache SecretCache
 
 	trustDomain string
 }
 
-type spireSecretCache struct {
-	mu       sync.RWMutex
-	workload *security.SecretItem
-	certRoot []byte
-}
+//type spireSecretCache struct {
+//	mu       sync.RWMutex
+//	workload *security.SecretItem
+//	certRoot []byte
+//}
 
 const agentSocketPath = "unix:///tmp/agent.sock"
 
@@ -63,34 +63,34 @@ func NewSpireSecretManager(options *security.Options) (*SpireSecretManager, erro
 	return ret, nil
 }
 
-// GetRoot returns cached root cert and cert expiration time. This method is thread safe.
-func (s *spireSecretCache) getRoot() (rootCert []byte) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.certRoot
-}
-
-// SetRoot sets root cert into cache. This method is thread safe.
-func (s *spireSecretCache) setRoot(rootCert []byte) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.certRoot = rootCert
-}
-
-func (s *spireSecretCache) getWorkload() *security.SecretItem {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if s.workload == nil {
-		return nil
-	}
-	return s.workload
-}
-
-func (s *spireSecretCache) setWorkload(value *security.SecretItem) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.workload = value
-}
+//// GetRoot returns cached root cert and cert expiration time. This method is thread safe.
+//func (s *SecretCache) getRoot() (rootCert []byte) {
+//	s.mu.RLock()
+//	defer s.mu.RUnlock()
+//	return s.certRoot
+//}
+//
+//// SetRoot sets root cert into cache. This method is thread safe.
+//func (s *SecretCache) setRoot(rootCert []byte) {
+//	s.mu.Lock()
+//	defer s.mu.Unlock()
+//	s.certRoot = rootCert
+//}
+//
+//func (s *SecretCache) getWorkload() *security.SecretItem {
+//	s.mu.RLock()
+//	defer s.mu.RUnlock()
+//	if s.workload == nil {
+//		return nil
+//	}
+//	return s.workload
+//}
+//
+//func (s *SecretCache) setWorkload(value *security.SecretItem) {
+//	s.mu.Lock()
+//	defer s.mu.Unlock()
+//	s.workload = value
+//}
 
 func (s *SpireSecretManager) GenerateSecret(resourceName string) (*security.SecretItem, error) {
 	log.WithLabels("ResourceName", resourceName).Info("calling GenerateSecret")
@@ -192,7 +192,7 @@ func (s *SpireSecretManager) callUpdateCallback(resourceName string) {
 //	}
 //}
 
-func (s *spireSecretCache) fetchSecret(resourceName string) (*security.SecretItem, error) {
+func (s *SecretCache) fetchSecret(resourceName string) (*security.SecretItem, error) {
 	var ctx = context.Background()
 	client, _ := workloadapi.New(ctx, workloadapi.WithAddr(agentSocketPath))
 	defer client.Close()
@@ -208,7 +208,8 @@ func (s *spireSecretCache) fetchSecret(resourceName string) (*security.SecretIte
 			ResourceName: resourceName,
 			RootCert:     fakeRoot,
 		}
-		s.setRoot(item.RootCert)
+
+		s.SetRoot(item.RootCert)
 	}
 	if resourceName == security.WorkloadKeyCertResourceName {
 		item = &security.SecretItem{
@@ -216,7 +217,7 @@ func (s *spireSecretCache) fetchSecret(resourceName string) (*security.SecretIte
 			CertificateChain: chain,
 			PrivateKey:       key,
 		}
-		s.setWorkload(item)
+		s.SetWorkload(item)
 	}
 	return item, nil
 }
@@ -225,7 +226,7 @@ func (s *SpireSecretManager) getCachedSecret(resourceName string) (*security.Sec
 	log.WithLabels("ResourceName", resourceName).Info("calling getCachedSecret")
 	ret := &security.SecretItem{}
 	if resourceName == security.RootCertReqResourceName {
-		if c := s.cache.getRoot(); c != nil {
+		if c := s.cache.GetRoot(); c != nil {
 			ret = &security.SecretItem{
 				ResourceName: resourceName,
 				RootCert:     c,
@@ -235,7 +236,7 @@ func (s *SpireSecretManager) getCachedSecret(resourceName string) (*security.Sec
 		}
 	}
 	if resourceName == security.WorkloadKeyCertResourceName {
-		if item := s.cache.getWorkload(); item != nil {
+		if item := s.cache.GetWorkload(); item != nil {
 			ret = &security.SecretItem{
 				ResourceName:     resourceName,
 				CertificateChain: item.CertificateChain,
