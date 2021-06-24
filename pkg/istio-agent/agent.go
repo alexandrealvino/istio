@@ -160,7 +160,7 @@ func (a *Agent) Start() error {
 	if err != nil {
 		return fmt.Errorf("failed to start workload secret manager %v", err)
 	}
-
+	println("--ALE ======== POS NEWSECRET START()")
 	a.sdsServer, err = sds.NewServer(a.secOpts, a.secretCache)
 	if err != nil {
 		return fmt.Errorf("failed to start local sds server %v", err)
@@ -286,6 +286,7 @@ func (a *Agent) newSecretManager() (security.SecretProvider, error) {
 	println("==========ALEXANDRE===========")
 	if a.secOpts.PilotCertProvider == "SPIRE" {
 		log.Info("Using SPIRE")
+		println(a.secOpts)
 		return cache.NewSpireSecretManager(a.secOpts)
 	}
 

@@ -106,6 +106,7 @@ func newSDSService(st security.SecretManager, options *security.Options) *sdsser
 		b := backoff.NewExponentialBackOff()
 		b.MaxElapsedTime = 0
 		for {
+			println("============CALL TO GENERATESECRET SDS WORKLOAD")
 			_, err := st.GenerateSecret(security.WorkloadKeyCertResourceName)
 			if err == nil {
 				break
@@ -118,6 +119,7 @@ func newSDSService(st security.SecretManager, options *security.Options) *sdsser
 			}
 		}
 		for {
+			println("============CALL TO GENERATESECRET ROOT")
 			_, err := st.GenerateSecret(security.RootCertReqResourceName)
 			if err == nil {
 				break
