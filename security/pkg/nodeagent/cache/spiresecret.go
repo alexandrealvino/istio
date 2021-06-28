@@ -2,7 +2,6 @@ package cache
 
 import (
 	"github.com/fsnotify/fsnotify"
-	"github.com/spiffe/go-spiffe/v2/bundle/jwtbundle"
 	"github.com/spiffe/go-spiffe/v2/workloadapi"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
@@ -11,8 +10,7 @@ import (
 	"istio.io/istio/pkg/queue"
 	"istio.io/istio/pkg/security"
 	"istio.io/pkg/log"
-	"os"
-	"os/signal"
+	"strings"
 	"sync"
 )
 
@@ -44,62 +42,24 @@ type SpireSecretManager struct {
 	trustDomain string
 }
 
-//type spireSecretCache struct {
-//	mu       sync.RWMutex
-//	workload *security.SecretItem
-//	certRoot []byte
-//}
-
 const agentSocketPath = "unix:///tmp/agent.sock"
 
 func NewSpireSecretManager(options *security.Options) (*SpireSecretManager, error) {
 	ret := &SpireSecretManager{
-		queue: queue.NewDelayed(queue.DelayQueueBuffer(0)),
-		stop:        make(chan struct{}),
 		trustDomain: options.TrustDomain,
 	}
-	go ret.queue.Run(ret.stop)
 	go startWatcher()
 	return ret, nil
 }
-
-//// GetRoot returns cached root cert and cert expiration time. This method is thread safe.
-//func (s *SecretCache) getRoot() (rootCert []byte) {
-//	s.mu.RLock()
-//	defer s.mu.RUnlock()
-//	return s.certRoot
-//}
-//
-//// SetRoot sets root cert into cache. This method is thread safe.
-//func (s *SecretCache) setRoot(rootCert []byte) {
-//	s.mu.Lock()
-//	defer s.mu.Unlock()
-//	s.certRoot = rootCert
-//}
-//
-//func (s *SecretCache) getWorkload() *security.SecretItem {
-//	s.mu.RLock()
-//	defer s.mu.RUnlock()
-//	if s.workload == nil {
-//		return nil
-//	}
-//	return s.workload
-//}
-//
-//func (s *SecretCache) setWorkload(value *security.SecretItem) {
-//	s.mu.Lock()
-//	defer s.mu.Unlock()
-//	s.workload = value
-//}
 
 func (s *SpireSecretManager) GenerateSecret(resourceName string) (*security.SecretItem, error) {
 	log.WithLabels("ResourceName", resourceName).Info("calling GenerateSecret")
 
 	ns, _ := s.getCachedSecret(resourceName)
-	println("========NS: %s===========", ns)
 	if ns != nil {
 		return ns, nil
 	}
+	log.Info("No cert found in cache for ",resourceName, " fetching from Workload API")
 
 	ns, _ = s.cache.fetchSecret(resourceName)
 	if ns != nil {
@@ -133,89 +93,31 @@ func (s *SpireSecretManager) callUpdateCallback(resourceName string) {
 	}
 }
 
-//func (s *SpireSecretManager) handleFileWatchSpire() {
-//	var timerC <-chan time.Time
-//	events := make(map[string]fsnotify.Event)
-//
-//	for {
-//		select {
-//		case <-timerC:
-//			timerC = nil
-//			for resource, event := range events {
-//				cacheLog.Infof("file certificate %s changed with event %s, pushing to proxy", resource, event.Op.String())
-//				s.certMutex.RLock()
-//				resources := s.fileCerts
-//				s.certMutex.RUnlock()
-//				// Trigger callbacks for all resources referencing this file. This is practically always
-//				// a single resource.
-//				for k := range resources {
-//					if k.Filename == resource {
-//						s.CallUpdateCallbackSpire(k.ResourceName)
-//					}
-//				}
-//			}
-//			events = make(map[string]fsnotify.Event)
-//		case event, ok := <-s.certWatcher.Events:
-//			// Channel is closed.
-//			if !ok {
-//				return
-//			}
-//			// We only care about updates that change the file content
-//			if !(isWrite(event) || isRemove(event) || isCreate(event)) {
-//				continue
-//			}
-//			// Typically inotify notifies about file change after the event i.e. write is complete. It only
-//			// does some housekeeping tasks after the event is generated. However in some cases, multiple events
-//			// are triggered in quick succession - to handle that case we debounce here.
-//			// Use a timer to debounce watch updates
-//			cacheLog.Infof("event for file certificate %s : %s, debouncing ", event.Name, event.Op.String())
-//			if timerC == nil {
-//				timerC = time.After(100 * time.Millisecond) // TODO: Make this configurable if needed.
-//				events[event.Name] = event
-//			}
-//		case err, ok := <-s.certWatcher.Errors:
-//			// Channel is closed.
-//			if !ok {
-//				return
-//			}
-//			numFileWatcherFailures.Increment()
-//			cacheLog.Errorf("certificate watch error: %v", err)
-//		}
-//	}
-//}
-//
-//func (s *SpireSecretManager) CallUpdateCallbackSpire(resourceName string) {
-//	s.certMutex.RLock()
-//	defer s.certMutex.RUnlock()
-//	if s.notifyCallback != nil {
-//		s.notifyCallback(resourceName)
-//	}
-//}
-
 func (s *SecretCache) fetchSecret(resourceName string) (*security.SecretItem, error) {
+	log.WithLabels("ResourceName", resourceName).Info("calling fetchSecret")
 	var ctx = context.Background()
+	item := &security.SecretItem{}
+
 	client, _ := workloadapi.New(ctx, workloadapi.WithAddr(agentSocketPath))
 	defer client.Close()
-	svid, _ := client.FetchX509SVID(ctx)
 
-	bundle, _ := client.FetchX509Bundles(ctx)
-	fakeRoot, _ := bundle.Bundles()[0].Marshal()
-	log.WithLabels("ResourceName", resourceName).Info("calling fetchSecret")
-	chain, key, _ := svid.Marshal()
-	item := &security.SecretItem{}
 	if resourceName == security.RootCertReqResourceName {
+		bundle, _ := client.FetchX509Bundles(ctx)
+		rootCert, _ := bundle.Bundles()[0].Marshal()
 		item = &security.SecretItem{
 			ResourceName: resourceName,
-			RootCert:     fakeRoot,
+			RootCert:     rootCert,
 		}
 
 		s.SetRoot(item.RootCert)
 	}
 	if resourceName == security.WorkloadKeyCertResourceName {
+		svid, _ := client.FetchX509SVID(ctx)
+		workloadChain, workloadKey, _ := svid.Marshal()
 		item = &security.SecretItem{
 			ResourceName:     resourceName,
-			CertificateChain: chain,
-			PrivateKey:       key,
+			CertificateChain: workloadChain,
+			PrivateKey:       workloadKey,
 		}
 		s.SetWorkload(item)
 	}
@@ -226,21 +128,21 @@ func (s *SpireSecretManager) getCachedSecret(resourceName string) (*security.Sec
 	log.WithLabels("ResourceName", resourceName).Info("calling getCachedSecret")
 	ret := &security.SecretItem{}
 	if resourceName == security.RootCertReqResourceName {
-		if c := s.cache.GetRoot(); c != nil {
+		if rootCert := s.cache.GetRoot(); rootCert != nil {
 			ret = &security.SecretItem{
 				ResourceName: resourceName,
-				RootCert:     c,
+				RootCert:     rootCert,
 			}
 		} else {
 			return nil, nil
 		}
 	}
 	if resourceName == security.WorkloadKeyCertResourceName {
-		if item := s.cache.GetWorkload(); item != nil {
+		if workloadCert := s.cache.GetWorkload(); workloadCert != nil {
 			ret = &security.SecretItem{
 				ResourceName:     resourceName,
-				CertificateChain: item.CertificateChain,
-				PrivateKey:       item.PrivateKey,
+				CertificateChain: workloadCert.CertificateChain,
+				PrivateKey:       workloadCert.PrivateKey,
 			}
 		} else {
 			return nil, nil
@@ -252,14 +154,10 @@ func (s *SpireSecretManager) getCachedSecret(resourceName string) (*security.Sec
 // ======================= WATCHER ========================
 
 func startWatcher() {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, _ := context.WithCancel(context.Background())
 
-	// Wait for an os.Interrupt signal
-	go waitForCtrlC(cancel)
-
-	// Start X.509 and JWT watchers
+	// Start X.509 watcher
 	startWatchers(ctx)
-	println("=========POS WATCHER CALL=========")
 }
 
 func startWatchers(ctx context.Context) {
@@ -277,73 +175,38 @@ func startWatchers(ctx context.Context) {
 	// Start a watcher for X.509 SVID updates
 	go func() {
 		defer wg.Done()
-		err := client.WatchX509Context(ctx, &x509Watcher{})
+		err := client.WatchX509Context(ctx, &SpireSecretManager{})
 		if err != nil && status.Code(err) != codes.Canceled {
 			log.Fatalf("Error watching X.509 context: %v", err)
-		}
-	}()
-
-	wg.Add(1)
-	// Start a watcher for JWT bundle updates
-	go func() {
-		defer wg.Done()
-		err := client.WatchJWTBundles(ctx, &jwtWatcher{})
-		if err != nil && status.Code(err) != codes.Canceled {
-			log.Fatalf("Error watching JWT bundles: %v", err)
 		}
 	}()
 
 	wg.Wait()
 }
 
-// x509Watcher is a sample implementation of the workloadapi.X509ContextWatcher interface
-type x509Watcher struct{}
-
 // UpdateX509SVIDs is run every time an SVID is updated
-func (x509Watcher) OnX509ContextUpdate(c *workloadapi.X509Context) {
+func (s *SpireSecretManager) OnX509ContextUpdate(c *workloadapi.X509Context) {
 	for _, svid := range c.SVIDs {
 		pem, _, err := svid.Marshal()
 		if err != nil {
 			log.Fatalf("Unable to marshal X.509 SVID: %v", err)
 		}
-
-		log.Info("SVID updated for %q: \n%s\n", svid.ID, string(pem))
+		if strings.HasSuffix(svid.ID.String(),security.WorkloadKeyCertResourceName) {
+			log.Info("SVID updated for %q: \n%s\n", svid.ID, string(pem))
+			workloadChain, workloadKey, _ := svid.Marshal()
+			item := &security.SecretItem{
+				ResourceName:     security.WorkloadKeyCertResourceName,
+				CertificateChain: workloadChain,
+				PrivateKey:       workloadKey,
+			}
+			s.cache.SetWorkload(item)
+		}
 	}
 }
 
 // OnX509ContextWatchError is run when the client runs into an error
-func (x509Watcher) OnX509ContextWatchError(err error) {
+func (s *SpireSecretManager) OnX509ContextWatchError(err error) {
 	if status.Code(err) != codes.Canceled {
 		log.Info("OnX509ContextWatchError error: %v", err)
 	}
-}
-
-// jwtWatcher is a sample implementation of the workloadapi.JWTBundleWatcher interface
-type jwtWatcher struct{}
-
-// UpdateX509SVIDs is run every time a JWT Bundle is updated
-func (jwtWatcher) OnJWTBundlesUpdate(bundleSet *jwtbundle.Set) {
-	for _, bundle := range bundleSet.Bundles() {
-		jwt, err := bundle.Marshal()
-		if err != nil {
-			log.Fatalf("Unable to marshal JWT Bundle : %v", err)
-		}
-		log.Info("jwt bundle updated %q: %s", bundle.TrustDomain(), string(jwt))
-	}
-}
-
-// OnJWTBundlesWatchError is run when the client runs into an error
-func (jwtWatcher) OnJWTBundlesWatchError(err error) {
-	if status.Code(err) != codes.Canceled {
-		log.Info("OnJWTBundlesWatchError error: %v", err)
-	}
-}
-
-// waitForCtrlC waits until an os.Interrupt signal is sent (ctrl + c)
-func waitForCtrlC(cancel context.CancelFunc) {
-	signalCh := make(chan os.Signal, 1)
-	signal.Notify(signalCh, os.Interrupt)
-	<-signalCh
-
-	cancel()
 }
