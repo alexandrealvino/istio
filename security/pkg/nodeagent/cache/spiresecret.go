@@ -148,12 +148,6 @@ func (s *SpireSecretManager) getCachedSecret(resourceName string) (*security.Sec
 
 func startWatcher() {
 	ctx, _ := context.WithCancel(context.Background())
-
-	// Start X.509 watcher
-	startWatchers(ctx)
-}
-
-func startWatchers(ctx context.Context) {
 	var wg sync.WaitGroup
 
 	// Creates a new Workload API client, connecting to provided socket path
