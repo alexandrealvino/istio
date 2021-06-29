@@ -12,9 +12,6 @@ import (
 )
 
 type SpireSecretManager struct {
-	// configOptions includes all configurable params for the cache.
-	configOptions *security.Options
-
 	// callback function to invoke when detecting secret change.
 	notifyCallback func(resourceName string)
 
