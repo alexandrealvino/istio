@@ -16,6 +16,7 @@ package v1alpha3
 
 import (
 	"fmt"
+	"net/url"
 
 	cluster "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
 	core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
@@ -752,9 +753,20 @@ func (cb *ClusterBuilder) buildUpstreamClusterTLSContext(opts *buildClusterOpts,
 		tlsContext.CommonTlsContext.TlsCertificateSdsSecretConfigs = append(tlsContext.CommonTlsContext.TlsCertificateSdsSecretConfigs,
 			authn_model.ConstructSdsSecretConfig(model.GetOrDefault(metadataSDS.GetResourceName(), authn_model.SDSDefaultResourceName), proxy))
 
+		var sans []string
+		for _, san := range tls.SubjectAltNames {
+			u, err := url.Parse(san)
+			if err != nil {
+				continue
+			}
+			sans = append(sans, u.Scheme+"://"+u.Host)
+		}
+
 		tlsContext.CommonTlsContext.ValidationContextType = &auth.CommonTlsContext_CombinedValidationContext{
 			CombinedValidationContext: &auth.CommonTlsContext_CombinedCertificateValidationContext{
-				DefaultValidationContext: &auth.CertificateValidationContext{MatchSubjectAltNames: util.StringToExactMatch(tls.SubjectAltNames)},
+				//TODO: do the same for the other cases
+				DefaultValidationContext: &auth.CertificateValidationContext{MatchSubjectAltNames: util.StringToPrefixMatch(sans)},
+				// DefaultValidationContext: &auth.CertificateValidationContext{MatchSubjectAltNames: util.StringToExactMatch(tls.SubjectAltNames)},
 				ValidationContextSdsSecretConfig: authn_model.ConstructSdsSecretConfig(model.GetOrDefault(metadataSDS.GetRootResourceName(),
 					authn_model.SDSRootResourceName), proxy),
 			},
