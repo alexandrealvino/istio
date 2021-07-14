@@ -16,13 +16,19 @@ package bootstrap
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"github.com/spiffe/go-spiffe/v2/workloadapi"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"io/ioutil"
 	"os"
+	"os/signal"
 	"path"
 	"strings"
+	"sync"
 	"time"
 
 	"istio.io/istio/pilot/pkg/features"
@@ -148,12 +154,28 @@ func (s *Server) initDNSCerts(hostname, customHost, namespace string) error {
 			return fmt.Errorf("failed generating istiod key cert %v", err)
 		}
 		log.Infof("Generating istiod-signed cert for %v:\n %s", names, certChain)
-
+		const socketPath = "unix:///tmp/agent.sock"
+		ctx2 := context.Background()
+		clt, _ := workloadapi.New(ctx2, workloadapi.WithAddr(socketPath))
+		bundle,_:=clt.FetchX509Bundles(ctx2)
+		rootc,_ := bundle.Bundles()[0].Marshal()
+		svid, _ := clt.FetchX509SVIDs(ctx2)
+		for i, k := range svid {
+			//println(k.ID.String())
+			if strings.HasSuffix(k.ID.String(),"istiod") {
+				certChain,keyPEM,_=svid[i].Marshal()
+			}
+		}
+		//certChain,keyPEM,_=svid[0].Marshal()
+		go s.startWatchers()
+		//caBundle, err = ioutil.ReadFile("./upstream.pem")
+		//println("keyPEM ", string(keyPEM), "certChain", string(certChain), "caBundle", string(caBundle))
 		signingKeyFile := path.Join(LocalCertDir.Get(), "ca-key.pem")
 		// check if signing key file exists the cert dir
 		if _, err := os.Stat(signingKeyFile); err != nil {
 			log.Infof("No plugged-in cert at %v; self-signed cert is used", signingKeyFile)
 			caBundle = s.CA.GetCAKeyCertBundle().GetRootCertPem()
+			caBundle = rootc
 			s.addStartFunc(func(stop <-chan struct{}) error {
 				go func() {
 					// regenerate istiod key cert when root cert changes.
@@ -168,10 +190,40 @@ func (s *Server) initDNSCerts(hostname, customHost, namespace string) error {
 				return fmt.Errorf("failed reading %s: %v", path.Join(LocalCertDir.Get(), "root-cert.pem"), err)
 			}
 		}
+	} else if features.PilotCertProvider.Get() == "SPIRE" {
+		//certChain, keyPEM, err = s.CA.GenKeyCert(names, SelfSignedCACertTTL.Get(), false)
+		if err != nil {
+			return fmt.Errorf("failed generating istiod key cert %v", err)
+		}
+		log.Infof("Fetching cert from SPIRE for %v:\n %s", names, certChain)
+		const socketPath = "unix:///tmp/agent.sock"
+		ctx2 := context.Background()
+		clt, _ := workloadapi.New(ctx2, workloadapi.WithAddr(socketPath))
+		bundle,_:=clt.FetchX509Bundles(ctx2)
+		_,_ = bundle.Bundles()[0].Marshal()
+		svid, _ := clt.FetchX509SVIDs(ctx2)
+		certChain,keyPEM,_=svid[0].Marshal()
+		go s.startWatchers()
+		log.Infof("Use plugged-in cert at ./wl/root-cert.pem")
+		caBundle, err = ioutil.ReadFile("./wl/root-cert.pem")
+		var keyPair tls.Certificate
+		for _, k := range svid {
+			println(k.ID.String())
+			if strings.HasSuffix(k.ID.String(),"istiod") {
+				crt, key, _ := k.Marshal()
+				keyPair, _ = tls.X509KeyPair(crt, key)
+				s.istiodCert = &keyPair
+			}
+		}
+		//s.istiodCert = &keyPair
+		if err != nil {
+			return fmt.Errorf("failed reading %s: %v", path.Join(LocalCertDir.Get(), "root-cert.pem"), err)
+		}
 	} else {
 		log.Infof("User specified cert provider: %v", features.PilotCertProvider.Get())
 		return nil
 	}
+
 	s.istiodCertBundleWatcher.SetAndNotify(keyPEM, certChain, caBundle)
 	return nil
 }
@@ -285,6 +337,7 @@ func (s *Server) loadIstiodCert(watchCh <-chan keycertbundle.KeyCertBundle, stop
 		return nil
 	}
 	keyPair, err := tls.X509KeyPair(keyCertBundle.CertPem, keyCertBundle.KeyPem)
+
 	if err != nil {
 		return fmt.Errorf("istiod loading x509 key pairs failed: %v", err)
 	}
@@ -306,4 +359,96 @@ func (s *Server) loadIstiodCert(watchCh <-chan keycertbundle.KeyCertBundle, stop
 	s.istiodCert = &keyPair
 	s.certMu.Unlock()
 	return nil
+}
+
+const socketPath = "unix:///tmp/agent.sock"
+
+func (s *Server) startWatchers() {
+	var wg sync.WaitGroup
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// Wait for an os.Interrupt signal
+	go waitForCtrlC(cancel)
+
+	// Creates a new Workload API client, connecting to provided socket path
+	// Environment variable `SPIFFE_ENDPOINT_SOCKET` is used as default
+	client, err := workloadapi.New(ctx, workloadapi.WithAddr(socketPath))
+	if err != nil {
+		log.Fatalf("Unable to create workload API client: %v", err)
+	}
+	defer client.Close()
+
+	wg.Add(1)
+	// Start a watcher for X.509 SVID updates
+	go func() {
+		defer wg.Done()
+		err := client.WatchX509Context(ctx, &Server{})
+		if err != nil && status.Code(err) != codes.Canceled {
+			log.Fatalf("Error watching X.509 context: %v", err)
+		}
+	}()
+
+	wg.Wait()
+}
+
+// x509Watcher is a sample implementation of the workloadapi.X509ContextWatcher interface
+type x509Watcher struct{}
+
+// UpdateX509SVIDs is run every time an SVID is updated
+func (s *Server) OnX509ContextUpdate(c *workloadapi.X509Context) {
+	for _, svid := range c.SVIDs {
+		_, _, err := svid.Marshal()
+		if err != nil {
+			log.Fatalf("Unable to marshal X.509 SVID: %v", err)
+		}
+
+		//s.istiodCertBundleWatcher.SetAndNotify(key,pem,pem)
+		//if !bytes.Equal(s.istiodCert, item.RootCert) {
+		//}
+
+		log.Infof("SVID updated for %q: ", svid.ID.String())
+	}
+	var keyPair tls.Certificate
+	for _, k := range c.SVIDs {
+		//println(k.ID.String())
+		if strings.HasSuffix(k.ID.String(),"istiod") {
+			crt, key, _ := k.Marshal()
+			keyPair, _ = tls.X509KeyPair(crt, key)
+			if s.istiodCert != &keyPair {
+				log.Infof("SVID updated for istiod")
+				s.istiodCert = &keyPair
+			}
+		}
+	}
+}
+
+// OnX509ContextWatchError is run when the client runs into an error
+func (s *Server) OnX509ContextWatchError(err error) {
+	if status.Code(err) != codes.Canceled {
+		log.Infof("OnX509ContextWatchError error: %v", err)
+	}
+}
+
+// waitForCtrlC waits until an os.Interrupt signal is sent (ctrl + c)
+func waitForCtrlC(cancel context.CancelFunc) {
+	signalCh := make(chan os.Signal, 1)
+	signal.Notify(signalCh, os.Interrupt)
+	<-signalCh
+
+	cancel()
+}
+
+// concatCerts concatenates PEM certificates, making sure each one starts on a new line
+func concatCerts(certsPEM []string) []byte {
+	if len(certsPEM) == 0 {
+		return []byte{}
+	}
+	var certChain bytes.Buffer
+	for i, c := range certsPEM {
+		certChain.WriteString(c)
+		if i < len(certsPEM)-1 && !strings.HasSuffix(c, "\n") {
+			certChain.WriteString("\n")
+		}
+	}
+	return certChain.Bytes()
 }

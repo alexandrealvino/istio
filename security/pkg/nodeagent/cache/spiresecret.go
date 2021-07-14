@@ -113,7 +113,7 @@ func (s *SpireSecretManager) OnX509ContextUpdate(c *workloadapi.X509Context) {
 		return
 	}
 	// lest's assume the first identity is the right one
-	svid := c.SVIDs[0]
+	svid := c.SVIDs[1]
 	workloadChain, workloadKey, err := svid.Marshal()
 	if err != nil {
 		log.Fatalf("Unable to marshal X.509 SVID: %v", err)
@@ -133,8 +133,13 @@ func (s *SpireSecretManager) OnX509ContextUpdate(c *workloadapi.X509Context) {
 	}
 
 	certChain := concatCerts([]string{string(workloadChain), string(root)})
-	leaf := c.SVIDs[0].Certificates[0]
-
+	leaf := c.SVIDs[1].Certificates[1]
+	//for _, k := range c.SVIDs {
+	//	println(k.ID.String())
+	//	if strings.HasSuffix(k.ID.String(),"istiod") {
+	//		s.callUpdateCallback("istiod")
+	//	}
+	//}
 	item := &security.SecretItem{
 		CertificateChain: certChain,
 		PrivateKey:       workloadKey,
@@ -147,14 +152,15 @@ func (s *SpireSecretManager) OnX509ContextUpdate(c *workloadapi.X509Context) {
 	s.Lock()
 	defer s.Unlock()
 
-	s.secretItem = item
-
+	//s.secretItem = item
 	if s.secretItem == nil || !bytes.Equal(s.secretItem.RootCert, item.RootCert) {
 		s.callUpdateCallback(security.RootCertReqResourceName)
 	}
+
 	if s.secretItem == nil || !bytes.Equal(s.secretItem.CertificateChain, item.CertificateChain) {
 		s.callUpdateCallback(security.WorkloadKeyCertResourceName)
 	}
+	s.secretItem = item
 }
 
 // OnX509ContextWatchError is run when the client runs into an error

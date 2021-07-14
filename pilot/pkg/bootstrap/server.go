@@ -254,7 +254,7 @@ func NewServer(args *PilotArgs, initFuncs ...func(*Server)) (*Server, error) {
 		caOpts.ExternalCASigner = k8sSigner
 	}
 
-	// CA signing certificate must be created first if needed.
+	//CA signing certificate must be created first if needed.
 	if err := s.maybeCreateCA(caOpts); err != nil {
 		return nil, err
 	}
@@ -1057,8 +1057,13 @@ func (s *Server) maybeCreateCA(caOpts *caOptions) error {
 		if s.CA, err = s.createIstioCA(corev1, caOpts); err != nil {
 			return fmt.Errorf("failed to create CA: %v", err)
 		}
-		if caOpts.ExternalCAType != "" {
+		if caOpts.ExternalCAType == "ISTIOD_RA_KUBERNETES_API" {
 			if s.RA, err = s.createIstioRA(s.kubeClient, caOpts); err != nil {
+				return fmt.Errorf("failed to create RA: %v", err)
+			}
+		}
+		if caOpts.ExternalCAType == "SPIRE" {
+			if s.RA, err = s.createSpireRA(caOpts); err != nil {
 				return fmt.Errorf("failed to create RA: %v", err)
 			}
 		}

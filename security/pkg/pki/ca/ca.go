@@ -44,7 +44,7 @@ const (
 	// caPrivateKeyID is the private key file of CA.
 	caPrivateKeyID = "ca-key.pem"
 	// CASecret stores the key/cert of self-signed CA for persistency purpose.
-	CASecret = "istio-ca-secret"
+	CASecret = "istio-ca-secret2"
 	// CertChainID is the ID/name for the certificate chain file.
 	CertChainID = "cert-chain.pem"
 	// PrivateKeyID is the ID/name for the private key file.
