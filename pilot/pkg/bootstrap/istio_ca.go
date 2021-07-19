@@ -371,6 +371,7 @@ func (s *Server) createIstioRA(client kubelib.Client,
 		K8sClient:      client.CertificatesV1beta1(),
 		TrustDomain:    opts.TrustDomain,
 	}
+	println("===========CREATING NEW ISTIO RA=============")
 	return ra.NewIstioRA(raOpts)
 }
 
@@ -387,6 +388,7 @@ func (s *Server) createSpireRA(opts *caOptions) (ra.RegistrationAuthority, error
 		//K8sClient:      client.CertificatesV1beta1(),
 		TrustDomain:    opts.TrustDomain,
 	}
+	println("===========CREATING NEW SPIRE RA=============")
 	return ra.NewSpireRA(raOpts)
 }
 

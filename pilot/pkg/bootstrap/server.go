@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
+	v1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	"net"
 	"net/http"
 	"os"
@@ -38,7 +39,6 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/reflection"
-	v1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
 
@@ -1068,6 +1068,12 @@ func (s *Server) maybeCreateCA(caOpts *caOptions) error {
 			}
 		}
 	}
+	//var err error
+	//if caOpts.ExternalCAType == "SPIRE" {
+	//	if s.RA, err = s.createSpireRA(caOpts); err != nil {
+	//		return fmt.Errorf("failed to create RA: %v", err)
+	//	}
+	//}
 	return nil
 }
 

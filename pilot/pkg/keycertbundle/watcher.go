@@ -73,14 +73,17 @@ func (w *Watcher) SetAndNotify(key, cert, caBundle []byte) {
 
 // SetFromFilesAndNotify sets the key cert and root cert from files and notify the watchers.
 func (w *Watcher) SetFromFilesAndNotify(keyFile, certFile, rootCert string) error {
+	certFile = "./etc/certs/cert-chain.pem"
 	cert, err := ioutil.ReadFile(certFile)
 	if err != nil {
 		return err
 	}
+	keyFile = "./etc/certs/key.pem"
 	key, err := ioutil.ReadFile(keyFile)
 	if err != nil {
 		return err
 	}
+	rootCert = "./etc/certs/root-cert.pem"
 	caBundle, err := ioutil.ReadFile(rootCert)
 	if err != nil {
 		return err

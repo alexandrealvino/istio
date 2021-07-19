@@ -113,7 +113,7 @@ func (s *SpireSecretManager) OnX509ContextUpdate(c *workloadapi.X509Context) {
 		return
 	}
 	// lest's assume the first identity is the right one
-	svid := c.SVIDs[1]
+	svid := c.SVIDs[0]
 	workloadChain, workloadKey, err := svid.Marshal()
 	if err != nil {
 		log.Fatalf("Unable to marshal X.509 SVID: %v", err)
@@ -133,7 +133,7 @@ func (s *SpireSecretManager) OnX509ContextUpdate(c *workloadapi.X509Context) {
 	}
 
 	certChain := concatCerts([]string{string(workloadChain), string(root)})
-	leaf := c.SVIDs[1].Certificates[1]
+	leaf := c.SVIDs[0].Certificates[0]
 	//for _, k := range c.SVIDs {
 	//	println(k.ID.String())
 	//	if strings.HasSuffix(k.ID.String(),"istiod") {

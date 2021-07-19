@@ -154,28 +154,11 @@ func (s *Server) initDNSCerts(hostname, customHost, namespace string) error {
 			return fmt.Errorf("failed generating istiod key cert %v", err)
 		}
 		log.Infof("Generating istiod-signed cert for %v:\n %s", names, certChain)
-		const socketPath = "unix:///tmp/agent.sock"
-		ctx2 := context.Background()
-		clt, _ := workloadapi.New(ctx2, workloadapi.WithAddr(socketPath))
-		bundle,_:=clt.FetchX509Bundles(ctx2)
-		rootc,_ := bundle.Bundles()[0].Marshal()
-		svid, _ := clt.FetchX509SVIDs(ctx2)
-		for i, k := range svid {
-			//println(k.ID.String())
-			if strings.HasSuffix(k.ID.String(),"istiod") {
-				certChain,keyPEM,_=svid[i].Marshal()
-			}
-		}
-		//certChain,keyPEM,_=svid[0].Marshal()
-		go s.startWatchers()
-		//caBundle, err = ioutil.ReadFile("./upstream.pem")
-		//println("keyPEM ", string(keyPEM), "certChain", string(certChain), "caBundle", string(caBundle))
 		signingKeyFile := path.Join(LocalCertDir.Get(), "ca-key.pem")
 		// check if signing key file exists the cert dir
 		if _, err := os.Stat(signingKeyFile); err != nil {
 			log.Infof("No plugged-in cert at %v; self-signed cert is used", signingKeyFile)
 			caBundle = s.CA.GetCAKeyCertBundle().GetRootCertPem()
-			caBundle = rootc
 			s.addStartFunc(func(stop <-chan struct{}) error {
 				go func() {
 					// regenerate istiod key cert when root cert changes.
@@ -191,39 +174,43 @@ func (s *Server) initDNSCerts(hostname, customHost, namespace string) error {
 			}
 		}
 	} else if features.PilotCertProvider.Get() == "SPIRE" {
-		//certChain, keyPEM, err = s.CA.GenKeyCert(names, SelfSignedCACertTTL.Get(), false)
-		if err != nil {
-			return fmt.Errorf("failed generating istiod key cert %v", err)
-		}
-		log.Infof("Fetching cert from SPIRE for %v:\n %s", names, certChain)
-		const socketPath = "unix:///tmp/agent.sock"
-		ctx2 := context.Background()
-		clt, _ := workloadapi.New(ctx2, workloadapi.WithAddr(socketPath))
-		bundle,_:=clt.FetchX509Bundles(ctx2)
-		_,_ = bundle.Bundles()[0].Marshal()
-		svid, _ := clt.FetchX509SVIDs(ctx2)
-		certChain,keyPEM,_=svid[0].Marshal()
-		go s.startWatchers()
-		log.Infof("Use plugged-in cert at ./wl/root-cert.pem")
-		caBundle, err = ioutil.ReadFile("./wl/root-cert.pem")
-		var keyPair tls.Certificate
-		for _, k := range svid {
-			println(k.ID.String())
-			if strings.HasSuffix(k.ID.String(),"istiod") {
-				crt, key, _ := k.Marshal()
-				keyPair, _ = tls.X509KeyPair(crt, key)
+		certChain, keyPEM, _, _ = s.RA.GetCAKeyCertBundle().GetAllPem()
+
+		//log.Infof("Fetching cert from SPIRE for %v:\n %s", names, certChain)
+		//const socketPath = "unix:///tmp/agent.sock"
+		//ctx2 := context.Background()
+		//clt, _ := workloadapi.New(ctx2, workloadapi.WithAddr(socketPath))
+		//bundle,_:=clt.FetchX509Bundles(ctx2)
+		//rootc,_ = bundle.Bundles()[0].Marshal()
+		//svid, _ := clt.FetchX509SVIDs(ctx2)
+		////certChain,keyPEM,_=svid[1].Marshal()
+		//go s.startWatchers()
+		//log.Infof("Use plugged-in cert at ./wl/root-cert.pem")
+		//log.Infof("Use plugged-in cert at ./wl/root-cert.pem")
+		////caBundle, err = ioutil.ReadFile("./wl/root-cert.pem")
+		//caBundle = certChain
+		//var keyPair tls.Certificate
+		//for _, k := range svid {
+		//	println(k.ID.String())
+		//	if strings.HasSuffix(k.ID.String(),"istiod") {
+		//		crt, key, _ := k.Marshal()
+		//		_ = ioutil.WriteFile("./etc/certs/root-cert.pem",rootc,0600)
+		//		_ = ioutil.WriteFile("./var/run/secrets/istio/certs/root-cert.pem",rootc,0600)
+		//		_ = ioutil.WriteFile("./etc/certs/cert-chain.pem",certChain,0600)
+		//		_ = ioutil.WriteFile("./etc/certs/key.pem",keyPEM,0600)
+				keyPair, _ := tls.X509KeyPair(certChain, keyPEM)
 				s.istiodCert = &keyPair
-			}
-		}
+		//	}
+		//}
 		//s.istiodCert = &keyPair
-		if err != nil {
-			return fmt.Errorf("failed reading %s: %v", path.Join(LocalCertDir.Get(), "root-cert.pem"), err)
-		}
+		//if err != nil {
+		//	return fmt.Errorf("failed reading %s: %v", path.Join(LocalCertDir.Get(), "root-cert.pem"), err)
+		//}
 	} else {
 		log.Infof("User specified cert provider: %v", features.PilotCertProvider.Get())
 		return nil
 	}
-
+	println("\n\n\n ===========OUT OF SCOPE==============\n\n")
 	s.istiodCertBundleWatcher.SetAndNotify(keyPEM, certChain, caBundle)
 	return nil
 }
@@ -260,16 +247,23 @@ func (s *Server) initCertificateWatches(tlsOptions TLSOptions) error {
 	if !hasPluginCert && !features.EnableCAServer {
 		return nil
 	}
-	if hasPluginCert {
+	println("=======HAS PLUGIN CERT = ", hasPluginCert)
+	if !hasPluginCert {
 		if err := s.istiodCertBundleWatcher.SetFromFilesAndNotify(tlsOptions.KeyFile, tlsOptions.CertFile, tlsOptions.CaCertFile); err != nil {
 			return fmt.Errorf("set keyCertBundle failed: %v", err)
 		}
-		// TODO: Setup watcher for root and restart server if it changes.
-		for _, file := range []string{tlsOptions.CertFile, tlsOptions.KeyFile} {
-			log.Infof("adding watcher for certificate %s", file)
-			if err := s.fileWatcher.Add(file); err != nil {
-				return fmt.Errorf("could not watch %v: %v", file, err)
-			}
+		//// TODO: Setup watcher for root and restart server if it changes.
+		//for _, file := range []string{tlsOptions.CertFile, tlsOptions.KeyFile} {
+		//	log.Infof("adding watcher for certificate %s", file)
+		//	if err := s.fileWatcher.Add(file); err != nil {
+		//		return fmt.Errorf("could not watch %v: %v", file, err)
+		//	}
+		//}
+		if err := s.fileWatcher.Add("./etc/certs/cert-chain.pem"); err != nil {
+			return fmt.Errorf("could not watch %v: %v", "./etc/certs/cert-chain.pem", err)
+		}
+		if err := s.fileWatcher.Add("./etc/certs/key.pem"); err != nil {
+			return fmt.Errorf("could not watch %v: %v", "./etc/certs/key.pem", err)
 		}
 		s.addStartFunc(func(stop <-chan struct{}) error {
 			go func() {
@@ -281,11 +275,11 @@ func (s *Server) initCertificateWatches(tlsOptions TLSOptions) error {
 						if err := s.istiodCertBundleWatcher.SetFromFilesAndNotify(tlsOptions.KeyFile, tlsOptions.CertFile, tlsOptions.CaCertFile); err != nil {
 							log.Errorf("Setting keyCertBundle failed: %v", err)
 						}
-					case <-s.fileWatcher.Events(tlsOptions.CertFile):
+					case <-s.fileWatcher.Events("./etc/certs/cert-chain.pem"):
 						if keyCertTimerC == nil {
 							keyCertTimerC = time.After(watchDebounceDelay)
 						}
-					case <-s.fileWatcher.Events(tlsOptions.KeyFile):
+					case <-s.fileWatcher.Events("./etc/certs/key.pem"):
 						if keyCertTimerC == nil {
 							keyCertTimerC = time.After(watchDebounceDelay)
 						}
@@ -414,6 +408,8 @@ func (s *Server) OnX509ContextUpdate(c *workloadapi.X509Context) {
 		if strings.HasSuffix(k.ID.String(),"istiod") {
 			crt, key, _ := k.Marshal()
 			keyPair, _ = tls.X509KeyPair(crt, key)
+			_ = ioutil.WriteFile("./etc/certs/cert-chain.pem",crt,0600)
+			_ = ioutil.WriteFile("./etc/certs/key.pem",key,0600)
 			if s.istiodCert != &keyPair {
 				log.Infof("SVID updated for istiod")
 				s.istiodCert = &keyPair
