@@ -69,9 +69,7 @@ var (
 			}
 
 			// Create the server for the discovery service.
-			println("===========BEFORE NEWSERVER============")
 			discoveryServer, err := bootstrap.NewServer(serverArgs)
-			println("===========AFTER NEWSERVER============")
 			if err != nil {
 				return fmt.Errorf("failed to create discovery service: %v", err)
 			}

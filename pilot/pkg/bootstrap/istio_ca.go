@@ -293,7 +293,6 @@ func (s *Server) loadRemoteCACerts(caOpts *caOptions, dir string) error {
 func (s *Server) createIstioCA(client corev1.CoreV1Interface, opts *caOptions) (*ca.IstioCA, error) {
 	var caOpts *ca.IstioCAOptions
 	var err error
-	println("==========createIstioCA called")
 	// In pods, this is the optional 'cacerts' Secret.
 	// TODO: also check for key.pem ( for interop )
 	signingKeyFile := path.Join(LocalCertDir.Get(), "ca-key.pem")
@@ -371,25 +370,7 @@ func (s *Server) createIstioRA(client kubelib.Client,
 		K8sClient:      client.CertificatesV1beta1(),
 		TrustDomain:    opts.TrustDomain,
 	}
-	println("===========CREATING NEW ISTIO RA=============")
 	return ra.NewIstioRA(raOpts)
-}
-
-// createSpireRA initializes the Istio RA signing functionality.
-// the caOptions defines the external provider
-func (s *Server) createSpireRA(opts *caOptions) (ra.RegistrationAuthority, error) {
-	raOpts := &ra.IstioRAOptions{
-		ExternalCAType: opts.ExternalCAType,
-		DefaultCertTTL: workloadCertTTL.Get(),
-		MaxCertTTL:     maxWorkloadCertTTL.Get(),
-		CaSigner:       opts.ExternalCASigner,
-		//CaCertFile:     caCertFile,
-		VerifyAppendCA: true,
-		//K8sClient:      client.CertificatesV1beta1(),
-		TrustDomain:    opts.TrustDomain,
-	}
-	println("===========CREATING NEW SPIRE RA=============")
-	return ra.NewSpireRA(raOpts)
 }
 
 // getJwtPath returns jwt path.

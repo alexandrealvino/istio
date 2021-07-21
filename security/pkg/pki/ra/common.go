@@ -99,13 +99,6 @@ func NewIstioRA(opts *IstioRAOptions) (RegistrationAuthority, error) {
 		}
 		return istioRA, err
 	}
-	if opts.ExternalCAType == "SPIRE" {
-		istioRA, err := NewSpireRA(opts)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create an K8s CA: %v", err)
-		}
-		return istioRA, err
-	}
 	return nil, fmt.Errorf("invalid CA Name %s", opts.ExternalCAType)
 }
 

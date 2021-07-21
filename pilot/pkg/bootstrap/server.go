@@ -968,9 +968,11 @@ func (s *Server) maybeInitDNSCerts(args *PilotArgs, host string) error {
 
 // createPeerCertVerifier creates a SPIFFE certificate verifier with the current istiod configuration.
 func (s *Server) createPeerCertVerifier(tlsOptions TLSOptions) (*spiffe.PeerCertVerifier, error) {
-	if tlsOptions.CaCertFile == "" && s.CA == nil && features.SpiffeBundleEndpoints == "" {
-		// Running locally without configured certs - no TLS mode
-		return nil, nil
+	if features.PilotCertProvider.Get() != SpireCAProvider {
+		if tlsOptions.CaCertFile == "" && s.CA == nil && features.SpiffeBundleEndpoints == "" {
+			// Running locally without configured certs - no TLS mode
+			return nil, nil
+		}
 	}
 	peerCertVerifier := spiffe.NewPeerCertVerifier()
 	var rootCertBytes []byte
@@ -1062,18 +1064,14 @@ func (s *Server) maybeCreateCA(caOpts *caOptions) error {
 				return fmt.Errorf("failed to create RA: %v", err)
 			}
 		}
-		if caOpts.ExternalCAType == "SPIRE" {
+	} else {
+		var err error
+		if features.PilotCertProvider.Get() == SpireCAProvider {
 			if s.RA, err = s.createSpireRA(caOpts); err != nil {
 				return fmt.Errorf("failed to create RA: %v", err)
 			}
 		}
 	}
-	//var err error
-	//if caOpts.ExternalCAType == "SPIRE" {
-	//	if s.RA, err = s.createSpireRA(caOpts); err != nil {
-	//		return fmt.Errorf("failed to create RA: %v", err)
-	//	}
-	//}
 	return nil
 }
 
@@ -1203,4 +1201,15 @@ func (s *Server) initWorkloadTrustBundle(args *PilotArgs) error {
 	}
 	log.Infof("done initializing workload trustBundle")
 	return nil
+}
+
+// createSpireRA initializes the SPIRE RA identity issuer functionality.
+// the caOptions defines the external provider
+func (s *Server) createSpireRA(opts *caOptions) (ra.RegistrationAuthority, error) {
+	watcher := s.istiodCertBundleWatcher
+	raOpts := &ra.IstioRAOptions{
+		TrustDomain:    opts.TrustDomain,
+	}
+	println("===========CREATING NEW SPIRE RA=============")
+	return ra.NewSpireRA(raOpts, watcher)
 }
