@@ -134,12 +134,6 @@ func (s *SpireSecretManager) OnX509ContextUpdate(c *workloadapi.X509Context) {
 
 	certChain := concatCerts([]string{string(workloadChain), string(root)})
 	leaf := c.SVIDs[0].Certificates[0]
-	//for _, k := range c.SVIDs {
-	//	println(k.ID.String())
-	//	if strings.HasSuffix(k.ID.String(),"istiod") {
-	//		s.callUpdateCallback("istiod")
-	//	}
-	//}
 	item := &security.SecretItem{
 		CertificateChain: certChain,
 		PrivateKey:       workloadKey,
