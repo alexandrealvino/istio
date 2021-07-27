@@ -170,7 +170,7 @@ func (s *Server) initDNSCerts(hostname, customHost, namespace string) error {
 		}
 	} else if features.PilotCertProvider.Get() == SpireCAProvider {
 		log.Infof("Calling Spire RA to fetch istiod identity")
-		certChain, keyPEM, caBundle, _ = s.RA.GetCAKeyCertBundle().GetAllPem()
+		certChain, keyPEM, _, caBundle = s.RA.GetCAKeyCertBundle().GetAllPem()
 	} else {
 		log.Infof("User specified cert provider: %v", features.PilotCertProvider.Get())
 		return nil
@@ -215,18 +215,12 @@ func (s *Server) initCertificateWatches(tlsOptions TLSOptions) error {
 		if err := s.istiodCertBundleWatcher.SetFromFilesAndNotify(tlsOptions.KeyFile, tlsOptions.CertFile, tlsOptions.CaCertFile); err != nil {
 			return fmt.Errorf("set keyCertBundle failed: %v", err)
 		}
-		//// TODO: Setup watcher for root and restart server if it changes.
+		// TODO: Setup watcher for root and restart server if it changes.
 		for _, file := range []string{tlsOptions.CertFile, tlsOptions.KeyFile} {
 			log.Infof("adding watcher for certificate %s", file)
 			if err := s.fileWatcher.Add(file); err != nil {
 				return fmt.Errorf("could not watch %v: %v", file, err)
 			}
-		}
-		if err := s.fileWatcher.Add("./etc/certs/cert-chain.pem"); err != nil {
-			return fmt.Errorf("could not watch %v: %v", "./etc/certs/cert-chain.pem", err)
-		}
-		if err := s.fileWatcher.Add("./etc/certs/key.pem"); err != nil {
-			return fmt.Errorf("could not watch %v: %v", "./etc/certs/key.pem", err)
 		}
 		s.addStartFunc(func(stop <-chan struct{}) error {
 			go func() {
@@ -294,7 +288,6 @@ func (s *Server) loadIstiodCert(watchCh <-chan keycertbundle.KeyCertBundle, stop
 		return nil
 	}
 	keyPair, err := tls.X509KeyPair(keyCertBundle.CertPem, keyCertBundle.KeyPem)
-
 	if err != nil {
 		return fmt.Errorf("istiod loading x509 key pairs failed: %v", err)
 	}
