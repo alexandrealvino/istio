@@ -254,7 +254,7 @@ func NewServer(args *PilotArgs, initFuncs ...func(*Server)) (*Server, error) {
 		caOpts.ExternalCASigner = k8sSigner
 	}
 
-	//CA signing certificate must be created first if needed.
+	// CA signing certificate must be created first if needed.
 	if err := s.maybeCreateCA(caOpts); err != nil {
 		return nil, err
 	}

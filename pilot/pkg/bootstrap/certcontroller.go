@@ -232,11 +232,11 @@ func (s *Server) initCertificateWatches(tlsOptions TLSOptions) error {
 						if err := s.istiodCertBundleWatcher.SetFromFilesAndNotify(tlsOptions.KeyFile, tlsOptions.CertFile, tlsOptions.CaCertFile); err != nil {
 							log.Errorf("Setting keyCertBundle failed: %v", err)
 						}
-					case <-s.fileWatcher.Events("./etc/certs/cert-chain.pem"):
+					case <-s.fileWatcher.Events(tlsOptions.CertFile):
 						if keyCertTimerC == nil {
 							keyCertTimerC = time.After(watchDebounceDelay)
 						}
-					case <-s.fileWatcher.Events("./etc/certs/key.pem"):
+					case <-s.fileWatcher.Events(tlsOptions.KeyFile):
 						if keyCertTimerC == nil {
 							keyCertTimerC = time.After(watchDebounceDelay)
 						}
