@@ -56,16 +56,16 @@ func FetchAll() *util.KeyCertBundle {
 	bundle,_:=clt.FetchX509Bundles(ctx)
 	rootc,_ = bundle.Bundles()[0].Marshal()
 	svid, _ := clt.FetchX509SVIDs(ctx)
-	for _, k := range svid {
-		if strings.HasSuffix(k.ID.String(),"istiod") {
-			println(k.ID.String())
-			certChain, keyPEM, _ = k.Marshal()
+	//for _, k := range svid {
+		//if strings.HasSuffix(k.ID.String(),"istiod") {
+			println(svid[0].ID.String())
+			certChain, keyPEM, _ = svid[0].Marshal()
 			err := keyCertBundle.VerifyAndSetAll(certChain, keyPEM, certChain, rootc)
 			if err != nil {
 				return nil
 			}
-		}
-	}
+		//}
+	//}
 	return keyCertBundle
 }
 
@@ -160,9 +160,9 @@ func (s *SpireRA) OnX509ContextUpdate(c *workloadapi.X509Context) {
 	if !bytes.Equal(root,s.root) {
 		s.root = root
 	}
-	for _, k := range c.SVIDs {
-		if strings.HasSuffix(k.ID.String(),"istiod") {
-			crt, key, _ := k.Marshal()
+	//for _, k := range c.SVIDs {
+	//	if strings.HasSuffix(k.ID.String(),"istiod") {
+			crt, key, _ := c.SVIDs[0].Marshal()
 			if !bytes.Equal(s.certChain,crt) {
 				s.certChain = crt
 				s.keyPEM = key
@@ -171,10 +171,10 @@ func (s *SpireRA) OnX509ContextUpdate(c *workloadapi.X509Context) {
 					log.Errorf(err)
 				}
 				s.watcher.SetAndNotify(key, crt, root)
-				log.Infof("SVID updated for %q: ", k.ID.String())
+				log.Infof("SVID updated for %q: ", c.SVIDs[0].ID.String())
 			}
-		}
-	}
+		//}
+	//}
 }
 
 // OnX509ContextWatchError is run when the client runs into an error

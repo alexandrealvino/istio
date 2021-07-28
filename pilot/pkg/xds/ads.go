@@ -237,8 +237,6 @@ func (s *DiscoveryServer) processRequest(req *discovery.DiscoveryRequest, con *C
 	}
 
 	push := s.globalPushContext()
-	//println(request.PushReason(), request.ConfigsUpdated, request.Reason)
-	//println("\n============ADS PUSH===========")
 	request.Reason = append(request.Reason, model.ProxyRequest)
 	return s.pushXds(con, push, versionInfo(), con.Watched(req.TypeUrl), request)
 }
@@ -817,7 +815,6 @@ func (s *DiscoveryServer) ProxyUpdate(clusterID, ip string) {
 
 // AdsPushAll will send updates to all nodes, for a full config or incremental EDS.
 func AdsPushAll(s *DiscoveryServer) {
-	println("\n============AdsPushAll===========\n")
 	s.AdsPushAll(versionInfo(), &model.PushRequest{
 		Full:   true,
 		Push:   s.globalPushContext(),
