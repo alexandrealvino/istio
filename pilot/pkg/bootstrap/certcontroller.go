@@ -48,6 +48,7 @@ const (
 var (
 	KubernetesCAProvider = "kubernetes"
 	IstiodCAProvider     = "istiod"
+	SpireCertProvider    = "spire"
 )
 
 // CertController can create certificates signed by K8S server.
@@ -168,6 +169,9 @@ func (s *Server) initDNSCerts(hostname, customHost, namespace string) error {
 				return fmt.Errorf("failed reading %s: %v", path.Join(LocalCertDir.Get(), "root-cert.pem"), err)
 			}
 		}
+	} else if features.PilotCertProvider.Get() == SpireCertProvider {
+		log.Infof("Calling Spire RA to fetch istiod identity")
+		certChain, keyPEM, _, caBundle = s.RA.GetCAKeyCertBundle().GetAllPem()
 	} else {
 		log.Infof("User specified cert provider: %v", features.PilotCertProvider.Get())
 		return nil
@@ -205,7 +209,7 @@ func (s *Server) watchRootCertAndGenKeyCert(names []string, stop <-chan struct{}
 func (s *Server) initCertificateWatches(tlsOptions TLSOptions) error {
 	hasPluginCert := hasCustomTLSCerts(tlsOptions)
 	// If there is neither plugin cert nor istiod signed cert, return.
-	if !hasPluginCert && !features.EnableCAServer {
+	if !hasPluginCert && features.EnableCAServer && features.PilotCertProvider.Get() != SpireCertProvider {
 		return nil
 	}
 	if hasPluginCert {
