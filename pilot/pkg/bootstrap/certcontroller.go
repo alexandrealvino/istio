@@ -170,8 +170,9 @@ func (s *Server) initDNSCerts(hostname, customHost, namespace string) error {
 			}
 		}
 	} else if features.PilotCertProvider.Get() == SpireCertProvider {
-		log.Infof("Using Spire cert provider")
-		certChain, keyPEM, _, caBundle = s.RA.GetCAKeyCertBundle().GetAllPem()
+		//log.Infof("Using Spire cert provider")
+		//certChain, keyPEM, _, caBundle = s.RA.GetCAKeyCertBundle().GetAllPem()
+		certChain, keyPEM, caBundle = s.II.GetIstiodCertBundle()
 	} else {
 		log.Infof("User specified cert provider: %v", features.PilotCertProvider.Get())
 		return nil

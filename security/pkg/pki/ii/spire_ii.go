@@ -1,4 +1,4 @@
-package ra
+package ii
 
 import (
 	"context"
@@ -10,27 +10,33 @@ import (
 	"istio.io/istio/security/pkg/pki/util"
 	"istio.io/pkg/log"
 	"sync"
-	"time"
 )
 
+// IstioRAOptions : Configuration Options for the IstioRA
+type IIOptions struct {
+	TrustDomain string
+}
+
 // SpireRA integrated with an external CA using Spire Workload API
-type SpireRA struct {
+type SpireII struct {
 	sync.Mutex
-	raOpts        *IstioRAOptions
+	iiOpts        *IIOptions
 	keyCertBundle *util.KeyCertBundle
 	istiodCert	  []byte
+	keyPem		  []byte
+	rootCert	  []byte
 	cancelWatcher context.CancelFunc
 	trustDomain   string
 	watcher 	  *keycertbundle.Watcher
 }
 
 // NewSpireRA : Create a RA that interfaces with Spire CA
-func NewSpireRA(raOpts *IstioRAOptions, watcher *keycertbundle.Watcher) (*SpireRA, error) {
+func NewSpireRA(iiOpts *IIOptions, watcher *keycertbundle.Watcher) (*SpireII, error) {
 
-	istioRA := &SpireRA{
-		raOpts:        raOpts,
-		trustDomain:   raOpts.TrustDomain,
-		keyCertBundle: FetchAll(raOpts.TrustDomain),
+	istioRA := &SpireII{
+		iiOpts:        iiOpts,
+		trustDomain:   iiOpts.TrustDomain,
+		keyCertBundle: FetchAll(iiOpts.TrustDomain),
 		watcher: 	   watcher,
 	}
 
@@ -49,7 +55,7 @@ func FetchAll(trustDomain string) *util.KeyCertBundle {
 	ctx := context.Background()
 	clt, err := workloadapi.New(ctx)
 	defer clt.Close()
-
+	trustDomain = "example.org"
 	td, err := spiffeid.TrustDomainFromString(trustDomain)
 	if err != nil{
 		log.Errorf("error trying to parse trust domain %q reason: %v", trustDomain, err)
@@ -95,7 +101,7 @@ func FetchAll(trustDomain string) *util.KeyCertBundle {
 	return keyCertBundle
 }
 
-func (s *SpireRA) startWatcher(ctx context.Context) {
+func (s *SpireII) startWatcher(ctx context.Context) {
 
 	// Creates a new Workload API client, connecting to provided socket path
 	// Environment variable `SPIFFE_ENDPOINT_SOCKET` is used as default
@@ -112,11 +118,11 @@ func (s *SpireRA) startWatcher(ctx context.Context) {
 }
 
 // OnX509ContextUpdate is run every time an SVID is updated
-func (s *SpireRA) OnX509ContextUpdate(c *workloadapi.X509Context) {
+func (s *SpireII) OnX509ContextUpdate(c *workloadapi.X509Context) {
 	s.Lock()
 	defer s.Unlock()
-	log.Infof("Got SVID update from Spire")
-
+	log.Infof("Got SVID update from Spire II")
+	s.trustDomain = "example.org"
 	trustDomain, err := spiffeid.TrustDomainFromString(s.trustDomain)
 	if err != nil{
 		log.Errorf("error trying to parse trust domain %q reason: %v", trustDomain, err)
@@ -152,26 +158,18 @@ func (s *SpireRA) OnX509ContextUpdate(c *workloadapi.X509Context) {
 }
 
 // OnX509ContextWatchError is run when the client runs into an error
-func (s *SpireRA) OnX509ContextWatchError(err error) {
+func (s *SpireII) OnX509ContextWatchError(err error) {
 	if status.Code(err) != codes.Canceled {
 		log.Infof("OnX509ContextWatchError error: %v", err)
 	}
 }
 
-// Sign takes a PEM-encoded CSR, subject IDs and lifetime, and returns a certificate signed by k8s CA.
-func (s *SpireRA) Sign(csrPEM []byte, subjectIDs []string, requestedLifetime time.Duration, forCA bool) ([]byte, error) {
-	log.Infof("Calling FetchIstiodSVID from Sign")
-	return s.istiodCert, nil
+// GetRootCert
+func (s *SpireII) GetIIRootCert() []byte {
+	return s.rootCert
 }
 
-// SignWithCertChain is similar to Sign but returns the leaf cert and the entire cert chain.
-func (s *SpireRA) SignWithCertChain(csrPEM []byte, subjectIDs []string, ttl time.Duration, forCA bool) ([]byte, error) {
-	log.Infof("Calling FetchIstiodCert from SignWithCertChain")
-	return s.istiodCert, nil
-}
-
-// GetCAKeyCertBundle returns the KeyCertBundle for the CA.
-func (s *SpireRA) GetCAKeyCertBundle() *util.KeyCertBundle {
-	log.Infof("Fetching istiod identity and bundle from Spire")
-	return s.keyCertBundle
+// GetRootCert
+func (s *SpireII) GetIstiodCertBundle() ([]byte,[]byte, []byte) {
+	return s.istiodCert, s.keyPem, s.rootCert
 }

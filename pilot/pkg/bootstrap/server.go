@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"istio.io/istio/security/pkg/pki/ii"
 	"net"
 	"net/http"
 	"os"
@@ -156,6 +157,7 @@ type Server struct {
 	certController *chiron.WebhookController
 	CA             *ca.IstioCA
 	RA             ra.RegistrationAuthority
+	II			   *ii.SpireII
 
 	// TrustAnchors for workload to workload mTLS
 	workloadTrustBundle     *tb.TrustBundle
@@ -988,6 +990,9 @@ func (s *Server) createPeerCertVerifier(tlsOptions TLSOptions) (*spiffe.PeerCert
 		if s.CA != nil {
 			rootCertBytes = append(rootCertBytes, s.CA.GetCAKeyCertBundle().GetRootCertPem()...)
 		}
+		if s.II != nil {
+			rootCertBytes = append(rootCertBytes, s.II.GetIIRootCert()...)
+		}
 	}
 
 	if len(rootCertBytes) != 0 {
@@ -1067,8 +1072,11 @@ func (s *Server) maybeCreateCA(caOpts *caOptions) error {
 	} else {
 		var err error
 		if features.PilotCertProvider.Get() == SpireCertProvider {
-			if s.RA, err = s.createSpireRA(); err != nil {
-				return fmt.Errorf("failed to create RA: %v", err)
+			//if s.RA, err = s.createSpireRA(); err != nil {
+			//	return fmt.Errorf("failed to create RA: %v", err)
+			//}
+			if s.II, err = s.createSpireII(); err != nil {
+				return fmt.Errorf("failed to create II: %v", err)
 			}
 		}
 	}
@@ -1211,4 +1219,14 @@ func (s *Server) createSpireRA() (ra.RegistrationAuthority, error) {
 		TrustDomain:    s.environment.Mesh().TrustDomain,
 	}
 	return ra.NewSpireRA(raOpts, watcher)
+}
+
+// createSpireRA initializes the SPIRE RA identity issuer functionality.
+// the caOptions defines the external provider
+func (s *Server) createSpireII() (*ii.SpireII, error) {
+	istiodCertWatcher := s.istiodCertBundleWatcher
+	iiOpts := &ii.IIOptions{
+		TrustDomain:    s.environment.Mesh().TrustDomain,
+	}
+	return ii.NewSpireRA(iiOpts, istiodCertWatcher)
 }
