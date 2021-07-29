@@ -1,7 +1,6 @@
 package ra
 
 import (
-	"bytes"
 	"context"
 	"github.com/spiffe/go-spiffe/v2/spiffeid"
 	"github.com/spiffe/go-spiffe/v2/workloadapi"
@@ -10,7 +9,6 @@ import (
 	"istio.io/istio/pilot/pkg/keycertbundle"
 	"istio.io/istio/security/pkg/pki/util"
 	"istio.io/pkg/log"
-	"strings"
 	"sync"
 	"time"
 )
@@ -20,9 +18,7 @@ type SpireRA struct {
 	sync.Mutex
 	raOpts        *IstioRAOptions
 	keyCertBundle *util.KeyCertBundle
-	certChain	  []byte
-	keyPEM		  []byte
-	root		  []byte
+	istiodCert	  []byte
 	cancelWatcher context.CancelFunc
 	trustDomain   string
 	watcher 	  *keycertbundle.Watcher
@@ -33,8 +29,8 @@ func NewSpireRA(raOpts *IstioRAOptions, watcher *keycertbundle.Watcher) (*SpireR
 
 	istioRA := &SpireRA{
 		raOpts:        raOpts,
-		keyCertBundle: FetchAll(),
 		trustDomain:   raOpts.TrustDomain,
+		keyCertBundle: FetchAll(raOpts.TrustDomain),
 		watcher: 	   watcher,
 	}
 
@@ -45,74 +41,58 @@ func NewSpireRA(raOpts *IstioRAOptions, watcher *keycertbundle.Watcher) (*SpireR
 	return istioRA, nil
 }
 
-// GetCAKeyCertBundle returns the KeyCertBundle for the CA.
-func FetchAll() *util.KeyCertBundle {
+// FetchAll returns the KeyCertBundle for the RA.
+func FetchAll(trustDomain string) *util.KeyCertBundle {
 	keyCertBundle := &util.KeyCertBundle{}
-	log.Infof("Fetching all certs of istiod from SPIRE")
-	var certChain , keyPEM, rootc []byte
+	log.Infof("Fetching Identities from Spire Identity Issuer")
+
 	ctx := context.Background()
-	clt, _ := workloadapi.New(ctx)
+	clt, err := workloadapi.New(ctx)
 	defer clt.Close()
-	bundle,_:=clt.FetchX509Bundles(ctx)
-	rootc,_ = bundle.Bundles()[0].Marshal()
-	svid, _ := clt.FetchX509SVIDs(ctx)
-	println(svid[0].ID.String())
-	certChain, keyPEM, _ = svid[0].Marshal()
-	err := keyCertBundle.VerifyAndSetAll(certChain, keyPEM, certChain, rootc)
-	if err != nil {
+	trustDomain = "example.org"
+	td, err := spiffeid.TrustDomainFromString(trustDomain)
+	if err != nil{
+		log.Errorf("error trying to parse trust domain %q reason: %v", trustDomain, err)
 		return nil
 	}
-	return keyCertBundle
-}
 
-func (s *SpireRA) FetchIstiodSVID() ([]byte, error) {
-	var certChain , keyPEM, rootc []byte
-	ctx := context.Background()
-	clt, _ := workloadapi.New(ctx)
-	defer clt.Close()
+	bundles, err := clt.FetchX509Bundles(ctx)
+	if err != nil {
+		log.Errorf("error trying to fetch bundles: %v", err)
+		return nil
+	}
 
-	bundle, err:=clt.FetchX509Bundles(ctx)
+	bundle, err := bundles.GetX509BundleForTrustDomain(td)
 	if err != nil {
-		return nil, err
+		log.Errorf("error trying to fetch bundle for trust domain %q reason: %v", trustDomain, err)
+		return nil
 	}
-	rootc, err = bundle.Bundles()[0].Marshal()
+
+	bundleBytes, err := bundle.Marshal()
 	if err != nil {
-		return nil, err
+		log.Errorf("Unable to marshal trust bundle: %v", trustDomain, err)
+		return nil
 	}
+
 	svid, err := clt.FetchX509SVIDs(ctx)
 	if err != nil {
-		return nil, err
+		log.Errorf("error trying to fetch svid's: %v", trustDomain, err)
+		return nil
 	}
 
-	for _, k := range svid {
-		println(k.ID.String())
-		if strings.HasSuffix(k.ID.String(),"istiod") {
-			certChain, keyPEM, _ = k.Marshal()
-		}
-	}
-	err = s.keyCertBundle.VerifyAndSetAll(certChain, keyPEM, certChain, rootc)
+	cert, keyPEM, err := svid[0].Marshal()
 	if err != nil {
-		log.Error("error setting keycertBundle with SPIRE RA")
+		log.Errorf("Unable to marshal certificate: %v", err)
+		return nil
 	}
-	return certChain, err
-}
 
-// Sign takes a PEM-encoded CSR, subject IDs and lifetime, and returns a certificate signed by k8s CA.
-func (s *SpireRA) Sign(csrPEM []byte, subjectIDs []string, requestedLifetime time.Duration, forCA bool) ([]byte, error) {
-	log.Infof("Calling FetchIstiodSVID from Sign")
-	return s.FetchIstiodSVID()
-}
+	err = keyCertBundle.VerifyAndSetAll(cert, keyPEM, cert, bundleBytes)
+	if err != nil {
+		log.Errorf("Unable to set istiod bundle: %v", err)
+		return nil
+	}
 
-// SignWithCertChain is similar to Sign but returns the leaf cert and the entire cert chain.
-func (s *SpireRA) SignWithCertChain(csrPEM []byte, subjectIDs []string, ttl time.Duration, forCA bool) ([]byte, error) {
-	log.Infof("Calling FetchIstiodSVID from SignWithCertChain")
-	return s.FetchIstiodSVID()
-}
-
-// GetCAKeyCertBundle returns the KeyCertBundle for the CA.
-func (s *SpireRA) GetCAKeyCertBundle() *util.KeyCertBundle {
-	log.Infof("Fetching cert of istiod from SPIRE")
-	return s.keyCertBundle
+	return keyCertBundle
 }
 
 func (s *SpireRA) startWatcher(ctx context.Context) {
@@ -131,20 +111,22 @@ func (s *SpireRA) startWatcher(ctx context.Context) {
 	}
 }
 
-// UpdateX509SVIDs is run every time an SVID is updated
+// OnX509ContextUpdate is run every time an SVID is updated
 func (s *SpireRA) OnX509ContextUpdate(c *workloadapi.X509Context) {
 	s.Lock()
 	defer s.Unlock()
-	trustDomain, err := spiffeid.TrustDomainFromString(s.raOpts.TrustDomain)
+	log.Infof("Got SVID update from Spire")
 
-	if err != nil {
-		log.Fatalf(err)
+	s.trustDomain = "example.org"
+	trustDomain, err := spiffeid.TrustDomainFromString(s.trustDomain)
+	if err != nil{
+		log.Errorf("error trying to parse trust domain %q reason: %v", trustDomain, err)
 		return
 	}
 
 	bundle, ok := c.Bundles.Get(trustDomain)
 	if !ok {
-		log.WithLabels("trust_domain",trustDomain).Fatal("Unable to get trust bundle for trust domain")
+		log.Errorf("error trying to fetch bundle for trust domain %q reason: %v", trustDomain, err)
 		return
 	}
 
@@ -153,20 +135,21 @@ func (s *SpireRA) OnX509ContextUpdate(c *workloadapi.X509Context) {
 		log.Fatalf("Unable to marshal trust bundle: %v", err)
 		return
 	}
-	if !bytes.Equal(root,s.root) {
-		s.root = root
+
+	crt, key, err := c.SVIDs[0].Marshal()
+	if err != nil {
+		log.Errorf("error trying to fetch svid's: %v", trustDomain, err)
+		return
 	}
-	crt, key, _ := c.SVIDs[0].Marshal()
-	//if !bytes.Equal(s.certChain,crt) {
-	s.certChain = crt
-	s.keyPEM = key
+
 	err = s.keyCertBundle.VerifyAndSetAll(crt, key, crt, root)
 	if err != nil {
-		log.Errorf(err)
+		log.Errorf("Unable to set istiod bundle: %v", err)
+		return
 	}
+
+	s.istiodCert = crt
 	s.watcher.SetAndNotify(key, crt, root)
-	log.Infof("SVID updated for %q: ", c.SVIDs[0].ID.String())
-	//}
 }
 
 // OnX509ContextWatchError is run when the client runs into an error
@@ -174,4 +157,22 @@ func (s *SpireRA) OnX509ContextWatchError(err error) {
 	if status.Code(err) != codes.Canceled {
 		log.Infof("OnX509ContextWatchError error: %v", err)
 	}
+}
+
+// Sign takes a PEM-encoded CSR, subject IDs and lifetime, and returns a certificate signed by k8s CA.
+func (s *SpireRA) Sign(csrPEM []byte, subjectIDs []string, requestedLifetime time.Duration, forCA bool) ([]byte, error) {
+	log.Infof("Calling FetchIstiodSVID from Sign")
+	return s.istiodCert, nil
+}
+
+// SignWithCertChain is similar to Sign but returns the leaf cert and the entire cert chain.
+func (s *SpireRA) SignWithCertChain(csrPEM []byte, subjectIDs []string, ttl time.Duration, forCA bool) ([]byte, error) {
+	log.Infof("Calling FetchIstiodCert from SignWithCertChain")
+	return s.istiodCert, nil
+}
+
+// GetCAKeyCertBundle returns the KeyCertBundle for the CA.
+func (s *SpireRA) GetCAKeyCertBundle() *util.KeyCertBundle {
+	log.Infof("Fetching istiod identity and bundle from Spire")
+	return s.keyCertBundle
 }

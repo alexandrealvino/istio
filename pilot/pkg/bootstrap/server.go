@@ -1067,7 +1067,7 @@ func (s *Server) maybeCreateCA(caOpts *caOptions) error {
 	} else {
 		var err error
 		if features.PilotCertProvider.Get() == SpireCertProvider {
-			if s.RA, err = s.createSpireRA(caOpts); err != nil {
+			if s.RA, err = s.createSpireRA(); err != nil {
 				return fmt.Errorf("failed to create RA: %v", err)
 			}
 		}
@@ -1205,11 +1205,10 @@ func (s *Server) initWorkloadTrustBundle(args *PilotArgs) error {
 
 // createSpireRA initializes the SPIRE RA identity issuer functionality.
 // the caOptions defines the external provider
-func (s *Server) createSpireRA(opts *caOptions) (ra.RegistrationAuthority, error) {
+func (s *Server) createSpireRA() (ra.RegistrationAuthority, error) {
 	watcher := s.istiodCertBundleWatcher
 	raOpts := &ra.IstioRAOptions{
-		TrustDomain:    opts.TrustDomain,
+		TrustDomain:    s.environment.Mesh().TrustDomain,
 	}
-	println("===========CREATING NEW SPIRE RA=============")
 	return ra.NewSpireRA(raOpts, watcher)
 }

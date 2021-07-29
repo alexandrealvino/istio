@@ -170,7 +170,7 @@ func (s *Server) initDNSCerts(hostname, customHost, namespace string) error {
 			}
 		}
 	} else if features.PilotCertProvider.Get() == SpireCertProvider {
-		log.Infof("Calling Spire RA to fetch istiod identity")
+		log.Infof("Using Spire cert provider")
 		certChain, keyPEM, _, caBundle = s.RA.GetCAKeyCertBundle().GetAllPem()
 	} else {
 		log.Infof("User specified cert provider: %v", features.PilotCertProvider.Get())
