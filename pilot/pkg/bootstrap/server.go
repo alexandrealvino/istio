@@ -968,7 +968,7 @@ func (s *Server) maybeInitDNSCerts(args *PilotArgs, host string) error {
 
 // createPeerCertVerifier creates a SPIFFE certificate verifier with the current istiod configuration.
 func (s *Server) createPeerCertVerifier(tlsOptions TLSOptions) (*spiffe.PeerCertVerifier, error) {
-	if features.PilotCertProvider.Get() != SpireCAProvider {
+	if features.PilotCertProvider.Get() != SpireCertProvider {
 		if tlsOptions.CaCertFile == "" && s.CA == nil && features.SpiffeBundleEndpoints == "" {
 			// Running locally without configured certs - no TLS mode
 			return nil, nil
@@ -1066,7 +1066,7 @@ func (s *Server) maybeCreateCA(caOpts *caOptions) error {
 		}
 	} else {
 		var err error
-		if features.PilotCertProvider.Get() == SpireCAProvider {
+		if features.PilotCertProvider.Get() == SpireCertProvider {
 			if s.RA, err = s.createSpireRA(caOpts); err != nil {
 				return fmt.Errorf("failed to create RA: %v", err)
 			}
