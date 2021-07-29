@@ -49,7 +49,7 @@ func FetchAll(trustDomain string) *util.KeyCertBundle {
 	ctx := context.Background()
 	clt, err := workloadapi.New(ctx)
 	defer clt.Close()
-	trustDomain = "example.org"
+
 	td, err := spiffeid.TrustDomainFromString(trustDomain)
 	if err != nil{
 		log.Errorf("error trying to parse trust domain %q reason: %v", trustDomain, err)
@@ -117,7 +117,6 @@ func (s *SpireRA) OnX509ContextUpdate(c *workloadapi.X509Context) {
 	defer s.Unlock()
 	log.Infof("Got SVID update from Spire")
 
-	s.trustDomain = "example.org"
 	trustDomain, err := spiffeid.TrustDomainFromString(s.trustDomain)
 	if err != nil{
 		log.Errorf("error trying to parse trust domain %q reason: %v", trustDomain, err)
