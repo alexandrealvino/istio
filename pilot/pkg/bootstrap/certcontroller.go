@@ -48,6 +48,7 @@ const (
 var (
 	KubernetesCAProvider = "kubernetes"
 	IstiodCAProvider     = "istiod"
+	SpiffeCertProvider   = "spiffe"
 )
 
 // CertController can create certificates signed by K8S server.
@@ -197,6 +198,35 @@ func (s *Server) watchRootCertAndGenKeyCert(names []string, stop <-chan struct{}
 			}
 		}
 	}
+}
+
+func (s *Server) setIstioCertBundleAndNotify(certChain []byte, key []byte, bundle []byte) {
+	keyPair, err := tls.X509KeyPair(certChain, key)
+
+	if err != nil {
+		log.Errorf("istiod loading x509 key pairs failed: %v", err)
+		return
+	}
+	for _, c := range keyPair.Certificate {
+		x509Cert, err := x509.ParseCertificates(c)
+		if err != nil {
+			log.Errorf("x509 cert - ParseCertificates() error: %v", err)
+			return
+		}
+		for _, c := range x509Cert {
+			log.Infof("x509 cert - Issuer: %q, Subject: %q, SN: %x, NotBefore: %q, NotAfter: %q",
+				c.Issuer, c.Subject, c.SerialNumber,
+				c.NotBefore.Format(time.RFC3339), c.NotAfter.Format(time.RFC3339))
+		}
+	}
+
+	s.certMu.Lock()
+	s.istiodCert = &keyPair
+	s.certMu.Unlock()
+	log.Info("istiod certificates are set")
+
+	s.istiodCertBundleWatcher.SetAndNotify(nil, nil, bundle)
+	log.Info("istiod Cert Bundle Watcher notified")
 }
 
 // initCertificateWatches sets up watches for the dns certs.

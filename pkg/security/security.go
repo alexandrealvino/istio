@@ -17,6 +17,7 @@ package security
 import (
 	"context"
 	"fmt"
+	"github.com/spiffe/go-spiffe/v2/bundle/x509bundle"
 	"strings"
 	"time"
 
@@ -231,6 +232,13 @@ type SecretManager interface {
 	GenerateSecret(resourceName string) (*SecretItem, error)
 }
 
+type SecretProvider interface {
+	SecretManager
+	Close()
+	SetUpdateCallback(func(string))
+	UpdateConfigTrustBundle([]byte) error
+}
+
 // TokenExchanger provides common interfaces so that authentication providers could choose to implement their specific logic.
 type TokenExchanger interface {
 	// ExchangeToken provides a common interface to exchange an existing token for a new one.
@@ -242,7 +250,10 @@ type SecretItem struct {
 	CertificateChain []byte
 	PrivateKey       []byte
 
-	RootCert []byte
+	RootCert       []byte
+
+	// May include trusted bundles from federated Trust domains
+	TrustBundles *x509bundle.Set
 
 	// ResourceName passed from envoy SDS discovery request.
 	// "ROOTCA" for root cert request, "default" for key/cert request.

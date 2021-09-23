@@ -18,6 +18,7 @@ package sds
 import (
 	"context"
 	"fmt"
+	"google.golang.org/protobuf/types/known/anypb"
 	"time"
 
 	"github.com/cenkalti/backoff"
@@ -148,7 +149,11 @@ func (s *sdsservice) generate(resourceNames []string) (model.Resources, error) {
 			return nil, fmt.Errorf("failed to generate secret for %v: %v", resourceName, err)
 		}
 
-		res := util.MessageToAny(toEnvoySecret(secret))
+		envoySecret, err := toEnvoySecret(secret)
+		if err != nil {
+			return nil, err
+		}
+		res := util.MessageToAny(envoySecret)
 		resources = append(resources, res)
 	}
 	return resources, nil
@@ -201,22 +206,27 @@ func (s *sdsservice) Close() {
 }
 
 // toEnvoySecret converts a security.SecretItem to an Envoy tls.Secret
-func toEnvoySecret(s *security.SecretItem) *tls.Secret {
+func toEnvoySecret(s *security.SecretItem) (*tls.Secret, error) {
 	secret := &tls.Secret{
 		Name: s.ResourceName,
 	}
 
 	cfg, ok := model.SdsCertificateConfigFromResourceName(s.ResourceName)
 	if s.ResourceName == security.RootCertReqResourceName || (ok && cfg.IsRootCertificate()) {
-		secret.Type = &tls.Secret_ValidationContext{
-			ValidationContext: &tls.CertificateValidationContext{
-				TrustedCa: &core.DataSource{
-					Specifier: &core.DataSource_InlineBytes{
-						InlineBytes: s.RootCert,
-					},
-				},
-			},
+		validatorConfig, err := buildSPIFFECertValidatorConfig(s)
+		if err != nil {
+			return nil, err
 		}
+		secret.Type = validatorConfig
+		//secret.Type = &tls.Secret_ValidationContext{
+		//	ValidationContext: &tls.CertificateValidationContext{
+		//		TrustedCa: &core.DataSource{
+		//			Specifier: &core.DataSource_InlineBytes{
+		//				InlineBytes: s.RootCert,
+		//			},
+		//		},
+		//	},
+		//}
 	} else {
 		secret.Type = &tls.Secret_TlsCertificate{
 			TlsCertificate: &tls.TlsCertificate{
@@ -234,7 +244,38 @@ func toEnvoySecret(s *security.SecretItem) *tls.Secret {
 		}
 	}
 
-	return secret
+	return secret, nil
+}
+
+func buildSPIFFECertValidatorConfig(s *security.SecretItem) (*tls.Secret_ValidationContext, error) {
+	var configTrustDomains []*tls.SPIFFECertValidatorConfig_TrustDomain
+
+	log.Infof("Creating SPIFFECertValidator")
+
+	for _, bundle := range s.TrustBundles.Bundles() {
+		caBytes, err := bundle.Marshal()
+		if err != nil {
+			return nil, err
+		}
+		configTrustDomains = append(configTrustDomains, &tls.SPIFFECertValidatorConfig_TrustDomain{
+			Name: bundle.TrustDomain().String(),
+			TrustBundle: &core.DataSource{Specifier: &core.DataSource_InlineBytes{
+				InlineBytes: caBytes,
+			}},
+		})
+	}
+
+	typedConfig, err := anypb.New(&tls.SPIFFECertValidatorConfig{TrustDomains: configTrustDomains})
+	if err != nil {
+		return nil, err
+	}
+
+	return &tls.Secret_ValidationContext{ValidationContext: &tls.CertificateValidationContext{
+		CustomValidatorConfig: &core.TypedExtensionConfig{
+			Name:        "envoy.tls.cert_validator.spiffe",
+			TypedConfig: typedConfig,
+		},
+	}}, nil
 }
 
 func pushLog(names []string, err error) {
